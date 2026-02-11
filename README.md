@@ -1,5 +1,3 @@
-<img width="1034" height="187" alt="image" src="https://github.com/user-attachments/assets/0c7cf2a0-2884-4a04-91a5-bfeeecf8b979" /># Developing a Neural Network Classification Model
-
 ## AIM
 
 To develop a neural network classification model for the given dataset.
