@@ -12,7 +12,8 @@ You are required to help the manager to predict the right group of the new custo
 
 ## Neural Network Model
 
-<img width="1058" height="531" alt="image" src="https://github.com/user-attachments/assets/393c5390-fd0a-4f48-97fc-4507a1f26e8c" />
+<img width="1154" height="1023" alt="image" src="https://github.com/user-attachments/assets/196d2d11-04d3-46b1-b99d-788d74893efb" />
+
 
 ## DESIGN STEPS
 
@@ -42,62 +43,151 @@ Evaluate the model with the testing data.
 ### Name: Kowshika R
 ### Register Number: 212224220049
 ```
-class NeuralNet(nn.Module):
-  def __init__(self):
-        super().__init__()
-        self.fc1 = nn.Linear(1,8)
-        self.fc2 = nn.Linear(8,10)
-        self.fc3 = nn.Linear(10,1)
-        self.relu = nn.ReLU()
-        self.history={'loss': []}
-  def forward(self,x):
-    x=self.relu(self.fc1(x)) 
-    x=self.relu(self.fc2(x))
-    x=self.fc3(x)  
-    return x
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+from torch.utils.data import TensorDataset, DataLoader
 
+data = pd.read_csv('customers.csv')
+data.head()
 
-# Initialize the Model, Loss Function, and Optimizer
+data.columns
 
-ai_brain = NeuralNet()
-criterion = nn.MSELoss()
-optimizer = optim.RMSprop(ai_brain.parameters(),lr=0.001)
+data = data.drop(columns=["ID"])
 
+data.fillna({"Work_Experience": 0, "Family_Size": data["Family_Size"].median()}, inplace=True)
 
-def train_model(ai_brain, X_train, y_train, criterion, optimizer, epochs=2000):
-    for epoch in range(epochs):
-        optimizer.zero_grad()
-        loss = criterion(ai_brain(X_train), y_train)
-        loss.backward()
-        optimizer.step()
+categorical_columns = ["Gender", "Ever_Married", "Graduated", "Profession", "Spending_Score", "Var_1"]
+for col in categorical_columns:
+    data[col] = LabelEncoder().fit_transform(data[col])
 
-        # Append loss inside the loop
-        ai_brain.history['loss'].append(loss.item())
+label_encoder = LabelEncoder()
+data["Segmentation"] = label_encoder.fit_transform(data["Segmentation"])  # A, B, C, D -> 0, 1, 2, 3
 
-        if epoch % 200 == 0:
-            print(f'Epoch [{epoch}/{epochs}], Loss: {loss.item():.6f}')
+X = data.drop(columns=["Segmentation"])
+y = data["Segmentation"].values
+
+# Train-test split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+scaler = StandardScaler()
+X_train = scaler.fit_transform(X_train)
+X_test = scaler.transform(X_test)
+
+X_train = torch.tensor(X_train, dtype=torch.float32)
+X_test = torch.tensor(X_test, dtype=torch.float32)
+y_train = torch.tensor(y_train, dtype=torch.long)
+y_test = torch.tensor(y_test, dtype=torch.long)
+
+train_dataset = TensorDataset(X_train, y_train)
+test_dataset = TensorDataset(X_test, y_test)
+train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=16)
+
+# Define Neural Network(Model1)
+class PeopleClassifier(nn.Module):
+    def __init__(self, input_size):
+        super(PeopleClassifier, self).__init__()
+        self.fc1 = nn.Linear(input_size, 32)
+        self.fc2 = nn.Linear(32, 16)
+        self.fc3 = nn.Linear(16, 8)
+        self.fc4 = nn.Linear(8, 4)
+
+    def forward(self, x):
+      x = F.relu(self.fc1(x))
+      x = F.relu(self.fc2(x))
+      x = F.relu(self.fc3(x))
+      x = self.fc4(x)
+      return x
+
+# Training Loop
+def train_model(model, train_loader, criterion, optimizer, epochs):
+  model.train()
+  for epoch in range(epochs):
+    for inputs, labels in train_loader:
+      optimizer.zero_grad()
+      outputs = model(inputs)
+      loss = criterion(outputs, labels)
+      loss.backward()
+      optimizer.step()
+
+  if (epoch + 1) % 10 == 0:
+        print(f'Epoch [{epoch+1}/{epochs}], Loss: {loss.item():.4f}')
+
+  # Initialize model
+model = PeopleClassifier(input_size = X_train.shape[1])
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+train_model(model, train_loader, criterion, optimizer, epochs=100)
+
+# Evaluation
+model.eval()
+predictions, actuals = [], []
+with torch.no_grad():
+    for X_batch, y_batch in test_loader:
+        outputs = model(X_batch)
+        _, predicted = torch.max(outputs, 1)
+        predictions.extend(predicted.numpy())
+        actuals.extend(y_batch.numpy())
+
+accuracy = accuracy_score(actuals, predictions)
+conf_matrix = confusion_matrix(actuals, predictions)
+class_report = classification_report(actuals, predictions, target_names=[str(i) for i in label_encoder.classes_])
+print("Name: KOWSHIKA R")
+print("Register No: 212224220049")
+print(f'Test Accuracy: {accuracy:.2f}%')
+print("Confusion Matrix:\n", conf_matrix)
+print("Classification Report:\n", class_report)
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+sns.heatmap(conf_matrix, annot=True, cmap='Blues', xticklabels=label_encoder.classes_, yticklabels=label_encoder.classes_,fmt='g')
+plt.xlabel("Predicted Labels")
+plt.ylabel("True Labels")
+plt.title("Confusion Matrix")
+plt.show()
+
+sample_input = X_test[12].clone().unsqueeze(0).detach().type(torch.float32)
+with torch.no_grad():
+    output = model(sample_input)
+    # Select the prediction for the sample (first element)
+    predicted_class_index = torch.argmax(output[0]).item()
+    predicted_class_label = label_encoder.inverse_transform([predicted_class_index])[0]
+print("Name: KOWSHIKA R ")
+print("Register No: 212224220049")
+print(f'Predicted class for sample input: {predicted_class_label}')
+print(f'Actual class for sample input: {label_encoder.inverse_transform([y_test[12].item()])[0]}')
 ```
 
 ## Dataset Information
 
-<img width="1034" height="187" alt="image" src="https://github.com/user-attachments/assets/c1112f0c-34bd-4ca9-8e95-c208c6ca30a6" />
+<img width="475" height="431" alt="image" src="https://github.com/user-attachments/assets/13f57317-7c60-425c-b9b2-88fbd454e80c" />
 
 
 ## OUTPUT
 
 ### Confusion Matrix
 
-<img width="918" height="685" alt="image" src="https://github.com/user-attachments/assets/366da1e9-c085-4ed1-b6e3-81f82e770a18" />
+<img width="735" height="589" alt="image" src="https://github.com/user-attachments/assets/3b67abbd-ccf9-4d86-a8ef-a78fc02a049e" />
 
 
 ### Classification Report
 
-<img width="917" height="538" alt="image" src="https://github.com/user-attachments/assets/883034d7-01ea-43c6-a003-9d42b855ab95" />
+<img width="754" height="449" alt="image" src="https://github.com/user-attachments/assets/9df861a9-a20f-4b83-84a5-75ba11d47ba3" />
+
 
 
 ### New Sample Data Prediction
 
-<img width="1034" height="101" alt="image" src="https://github.com/user-attachments/assets/d2f895d4-55a7-4aa2-902c-c09be12f4ffe" />
+<img width="440" height="88" alt="image" src="https://github.com/user-attachments/assets/0e4fbe65-f7e9-4bfc-8eda-4eec37f663f8" />
+
 
 ## RESULT
 Thus neural network classification model is developded for the given dataset.
